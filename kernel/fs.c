@@ -387,6 +387,8 @@ bmap(struct inode *ip, uint bn)
   }
   bn -= NDIRECT;
 
+  printf("Finished writing 12KB (direct)\n");
+
   if(bn < NINDIRECT){
     // Load indirect block, allocating if necessary.
     if((addr = ip->addrs[NDIRECT]) == 0)
@@ -400,6 +402,33 @@ bmap(struct inode *ip, uint bn)
     brelse(bp);
     return addr;
   }
+
+  printf("Finished writing 268KB (single indirect)\n");
+
+  // Double Indirect Links
+  bn -= NINDIRECT;
+  if(bn < NINDIRECT*NINDIRECT){
+    // Load 2nd indirect block, allocating if necessary.
+    if((addr = ip->addrs[NDIRECT+1]) == 0) // 2nd block. NDIRECT+1 is to get the index vector.
+      ip->addrs[NDIRECT+1] = addr = balloc(ip->dev);
+    bp = bread(ip->dev, addr);
+    a = (uint*)bp->data;
+    if((addr = a[bn/(NINDIRECT)]) == 0){ // Get index for 1st indirection. (NINDIRECT is 128)                                  
+      a[bn/(NINDIRECT)] = addr = balloc(ip->dev);
+      log_write(bp);
+    }
+    brelse(bp); // release the double indirect table (main level)
+    bp = bread(ip->dev, addr);
+    a = (uint*)bp->data;
+    if((addr = a[bn%(NINDIRECT)]) == 0){ //get the 2nd level table
+        a[bn%(NINDIRECT)] = addr = balloc(ip->dev);
+        log_write(bp);
+    }
+    brelse(bp);
+    return addr;
+  }
+
+  printf("Finished writing 10MB\n");
 
   panic("bmap: out of range");
 }

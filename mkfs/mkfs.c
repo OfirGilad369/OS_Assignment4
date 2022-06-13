@@ -24,7 +24,7 @@ int nbitmap = FSSIZE/(BSIZE*8) + 1;
 int ninodeblocks = NINODES / IPB + 1;
 int nlog = LOGSIZE;
 int nmeta;    // Number of meta blocks (boot, sb, nlog, inode, bitmap)
-int nblocks;  // Number of data blocks
+int nblocks = 131072;  // Number of data blocks (128MB)
 
 int fsfd;
 struct superblock sb;
@@ -91,7 +91,7 @@ main(int argc, char *argv[])
 
   // 1 fs block = 1 disk sector
   nmeta = 2 + nlog + ninodeblocks + nbitmap;
-  nblocks = FSSIZE - nmeta;
+  //nblocks = FSSIZE - nmeta;
 
   sb.magic = FSMAGIC;
   sb.size = xint(FSSIZE);
