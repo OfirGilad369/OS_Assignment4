@@ -484,3 +484,39 @@ sys_pipe(void)
   }
   return 0;
 }
+
+// // System call to support symbolic links
+// uint64 
+// sys_symlink(void) {
+//   char target[MAXPATH], path[MAXPATH];
+//   struct inode *ip;
+
+//   if(argstr(0, target, MAXPATH) < 0 || argstr(1, path, MAXPATH) < 0)
+//     return -1;
+  
+//   begin_op();
+  
+//   if((ip = create(path, T_SYMLINK, 0, 0)) == 0) {
+//     end_op();
+//     return -1;
+//   }
+
+//   int len = strlen(target);
+//   if(len > MAXPATH) 
+//     panic("sys_symlink: too long pathname\n");
+//   // write size of sokt link path first, convenient for readi() to read
+//   if(writei(ip, 0, (uint64)&len, 0, sizeof(int)) != sizeof(int)) {
+//     end_op();
+//     return -1;
+//   }
+//   if(writei(ip, 0, (uint64)target, sizeof(int), len) != len) {
+//     end_op();
+//     return -1;
+//   }
+  
+//   iupdate(ip);
+//   iunlockput(ip);
+
+//   end_op();
+//   return 0;
+// }
