@@ -387,7 +387,7 @@ bmap(struct inode *ip, uint bn)
   }
   bn -= NDIRECT;
 
-  printf("Finished writing 12KB (direct)\n");
+  //printf("Finished writing 12KB (direct)\n");
 
   if(bn < NINDIRECT){
     // Load indirect block, allocating if necessary.
@@ -403,13 +403,13 @@ bmap(struct inode *ip, uint bn)
     return addr;
   }
 
-  printf("Finished writing 268KB (single indirect)\n");
+  //printf("Finished writing 268KB (single indirect)\n");
 
   // Double Indirect Links
   bn -= NINDIRECT;
   if(bn < NINDIRECT*NINDIRECT){
-    // Load 2nd indirect block, allocating if necessary.
-    if((addr = ip->addrs[NDIRECT+1]) == 0) // 2nd block. NDIRECT+1 is to get the index vector.
+    // Load double indirect block, allocating if necessary.
+    if((addr = ip->addrs[NDIRECT+1]) == 0) // Double indirect block. NDIRECT+1 is to get the index vector.
       ip->addrs[NDIRECT+1] = addr = balloc(ip->dev);
     bp = bread(ip->dev, addr);
     a = (uint*)bp->data;
@@ -417,10 +417,10 @@ bmap(struct inode *ip, uint bn)
       a[bn/(NINDIRECT)] = addr = balloc(ip->dev);
       log_write(bp);
     }
-    brelse(bp); // release the double indirect table (main level)
+    brelse(bp); // Release the double indirect table (main level)
     bp = bread(ip->dev, addr);
     a = (uint*)bp->data;
-    if((addr = a[bn%(NINDIRECT)]) == 0){ //get the 2nd level table
+    if((addr = a[bn%(NINDIRECT)]) == 0){ // Get the 2nd level table
         a[bn%(NINDIRECT)] = addr = balloc(ip->dev);
         log_write(bp);
     }
@@ -428,7 +428,7 @@ bmap(struct inode *ip, uint bn)
     return addr;
   }
 
-  printf("Finished writing 10MB\n");
+  //printf("Finished writing 10MB\n");
 
   panic("bmap: out of range");
 }
@@ -439,8 +439,8 @@ void
 itrunc(struct inode *ip)
 {
   int i, j;
-  struct buf *bp;
-  uint *a;
+  struct buf *bp, *bbp; // added bbp
+  uint *a, *b; // added b
 
   for(i = 0; i < NDIRECT; i++){
     if(ip->addrs[i]){
@@ -459,6 +459,27 @@ itrunc(struct inode *ip)
     brelse(bp);
     bfree(ip->dev, ip->addrs[NDIRECT]);
     ip->addrs[NDIRECT] = 0;
+  }
+
+  // Double Indirect Links
+  if(ip->addrs[NDIRECT+1]) {
+    bp = bread(ip->dev, ip->addrs[NDIRECT+1]);
+    a = (uint*)bp->data;
+    for(i = 0; i < NINDIRECT; i++) {
+      if(a[i]) {
+        bbp = bread(ip->dev, a[i]);
+        b = (uint*)bbp->data;
+        for(j = 0; j < NINDIRECT; j++) {
+          if(b[j])
+            bfree(ip->dev, b[j]);
+        }
+        brelse(bbp);
+        bfree(ip->dev, a[i]);
+      }
+    }
+    brelse(bp);
+    bfree(ip->dev, ip->addrs[NDIRECT+1]);
+    ip->addrs[NDIRECT+1] = 0;
   }
 
   ip->size = 0;
