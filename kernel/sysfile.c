@@ -16,7 +16,9 @@
 #include "file.h"
 #include "fcntl.h"
 
+uint64 readlink(char *pathname, char *buf, int bufsize);
 struct inode* dereference_link(struct inode* ip, int i);
+
 // Fetch the nth word-sized system call argument as a file descriptor
 // and return both the descriptor and the corresponding struct file.
 static int
@@ -401,13 +403,16 @@ sys_chdir(void)
     return -1;
   }
   ilock(ip);
-  if(ip->type == T_SYMLINK){
-    ip = dereference_link(ip, 0);
-    if(ip == 0){
-      end_op();
-      return -1;
-    }
-  }
+
+  // Dereferencing the symbolic link - START
+  // if(ip->type == T_SYMLINK){
+  //   ip = dereference_link(ip, 0);
+  //   if(ip == 0){
+  //     end_op();
+  //     return -1;
+  //   }
+  // }
+  // Dereferencing the symbolic link - END
 
   if(ip->type != T_DIR){
     iunlockput(ip);
@@ -426,35 +431,39 @@ sys_exec(void)
 {
   char path[MAXPATH], *argv[MAXARG];
   int i;
-  int len;
   uint64 uargv, uarg;
-  struct inode* ip;
-
-  ip = namei(path);
-  ilock(ip);
-  if(ip->type == T_SYMLINK){
-    ip = dereference_link(ip, 1);
-    if(ip == 0){
-      end_op();
-      return -1;
-    }
-    
-    if(readi(ip, 0, (uint64)&len, 0, sizeof(int)) != sizeof(int)){
-      iunlockput(ip);
-      end_op();
-      return 0;
-    }
-
-    if(readi(ip, 0, (uint64)path, sizeof(int), len) != len){
-      iunlockput(ip);
-      end_op();
-      return 0;
-    }
-  }
+  // int len;
+  // struct inode* ip;
 
   if(argstr(0, path, MAXPATH) < 0 || argaddr(1, &uargv) < 0){
     return -1;
   }
+
+  // Dereferencing the symbolic link - START
+  // ip = namei(path);
+  // ilock(ip);
+  
+  // if(ip->type == T_SYMLINK){
+  //   ip = dereference_link(ip, 1);
+  //   if(ip == 0){
+  //     end_op();
+  //     return -1;
+  //   }
+    
+  //   if(readi(ip, 0, (uint64)&len, 0, sizeof(int)) != sizeof(int)){
+  //     iunlockput(ip);
+  //     end_op();
+  //     return 0;
+  //   }
+
+  //   if(readi(ip, 0, (uint64)path, sizeof(int), len) != len){
+  //     iunlockput(ip);
+  //     end_op();
+  //     return 0;
+  //   }
+  // }
+  // Dereferencing the symbolic link - END
+
   memset(argv, 0, sizeof(argv));
   for(i=0;; i++){
     if(i >= NELEM(argv)){
@@ -518,69 +527,13 @@ sys_pipe(void)
   return 0;
 }
 
-uint64
-sys_readlink(void)
-{
-  char path[MAXPATH];
-  char *buf;
-  int bufsize;
-  uint64 len;
-  struct inode *ip;
-
-
-    if(argstr(0, path, MAXPATH) < 0  || argaddr(1, (uint64*)&buf) < 0 || argint(2, &bufsize) < 0)
-    return -1;
-
-    begin_op();
-
-    if(strlen(path) > MAXPATH){
-      end_op();
-      return -1;
-    }
-
-    if((ip = namei(path)) == 0){
-      end_op();
-      return -1;
-    }
-
-    ilock(ip);
-
-    if(ip->type != T_SYMLINK){
-      iunlock(ip);
-      end_op();
-      return -1;
-    }
-    
-    if(readi(ip, 0, (uint64)&len, 0, sizeof(int)) != sizeof(int)){
-      iunlock(ip);
-      end_op();
-      return -1;
-    }
-
-    if(len > bufsize){
-      iunlock(ip);
-      end_op();
-      return -1;
-    }
-
-    if(readi(ip, 0, (uint64)buf, sizeof(int), len) != len){
-      iunlock(ip);
-      end_op();
-      return -1;
-    }
-
-    iunlock(ip);
-    end_op();
-    return 0;
-}
-
 // System call to support symbolic links
 uint64 
 sys_symlink(void) {
-  char newpath[MAXPATH], oldpath[MAXPATH];
+  char oldpath[MAXPATH], newpath[MAXPATH];
   struct inode *ip;
 
-  if(argstr(0, newpath, MAXPATH) < 0 || argstr(1, oldpath, MAXPATH) < 0)
+  if(argstr(0, oldpath, MAXPATH) < 0 || argstr(1, newpath, MAXPATH) < 0)
     return -1;
   
   begin_op();
@@ -609,6 +562,81 @@ sys_symlink(void) {
 
   end_op();
   return 0;
+}
+
+uint64
+sys_readlink(void)
+{
+  char pathname[MAXPATH], buf[MAXPATH];
+  int bufsize;
+  struct inode *ip;
+  // uint64 len;
+
+  if(argstr(0, pathname, MAXPATH) < 0  ||  argstr(1, buf, MAXPATH) < 0 || argint(2, &bufsize) < 0)
+  return -1;
+
+  // Might be redundent
+  // begin_op();
+
+  if((ip = namei(pathname)) == 0){
+    // end_op();
+    return -1;
+  }
+  else {
+    return readlink(pathname, buf, bufsize);
+  }
+
+  // ilock(ip);
+
+  // if(ip->type != T_SYMLINK){
+  //   iunlock(ip);
+  //   end_op();
+  //   return -1;
+  // }
+ 
+  // if(readi(ip, 0, (uint64)&len, 0, sizeof(int)) != sizeof(int)){
+  //   iunlock(ip);
+  //   end_op();
+  //   return -1;
+  // }
+
+  // if(len > bufsize){
+  //   iunlock(ip);
+  //   end_op();
+  //   return -1;
+  // }
+
+  // if(readi(ip, 0, (uint64)buf, sizeof(int), len) != len){
+  //   iunlock(ip);
+  //   end_op();
+  //   return -1;
+  // }
+  
+  // iunlock(ip);
+  // end_op();
+  // return 0;
+}
+
+uint64
+readlink(char *pathname, char *buf, int bufsize){
+  struct inode *ip;
+  if((ip = namei(pathname)) == 0){
+    return -1;
+  }
+  ilock(ip);
+
+  if(ip->type != T_SYMLINK){
+    iunlock(ip);
+    return -1;
+  }
+
+  if(ip->type == T_SYMLINK){
+    safestrcpy(buf, (char *)ip->addrs, bufsize);
+    iunlock(ip);
+    return 0;
+  }
+  iunlock(ip);
+  return -1;
 }
 
 // must hold the lock of the link
