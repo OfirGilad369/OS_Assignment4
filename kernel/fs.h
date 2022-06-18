@@ -59,3 +59,5 @@ struct dirent {
   char name[DIRSIZ];
 };
 
+#define MAX_DEREFERENCE 31
+

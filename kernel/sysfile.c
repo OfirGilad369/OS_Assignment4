@@ -16,6 +16,7 @@
 #include "file.h"
 #include "fcntl.h"
 
+struct inode* dereference_link(struct inode* ip, int i);
 // Fetch the nth word-sized system call argument as a file descriptor
 // and return both the descriptor and the corresponding struct file.
 static int
@@ -400,6 +401,14 @@ sys_chdir(void)
     return -1;
   }
   ilock(ip);
+  if(ip->type == T_SYMLINK){
+    ip = dereference_link(ip, 0);
+    if(ip == 0){
+      end_op();
+      return -1;
+    }
+  }
+
   if(ip->type != T_DIR){
     iunlockput(ip);
     end_op();
@@ -417,7 +426,31 @@ sys_exec(void)
 {
   char path[MAXPATH], *argv[MAXARG];
   int i;
+  int len;
   uint64 uargv, uarg;
+  struct inode* ip;
+
+  ip = namei(path);
+  ilock(ip);
+  if(ip->type == T_SYMLINK){
+    ip = dereference_link(ip, 1);
+    if(ip == 0){
+      end_op();
+      return -1;
+    }
+    
+    if(readi(ip, 0, (uint64)&len, 0, sizeof(int)) != sizeof(int)){
+      iunlockput(ip);
+      end_op();
+      return 0;
+    }
+
+    if(readi(ip, 0, (uint64)path, sizeof(int), len) != len){
+      iunlockput(ip);
+      end_op();
+      return 0;
+    }
+  }
 
   if(argstr(0, path, MAXPATH) < 0 || argaddr(1, &uargv) < 0){
     return -1;
@@ -485,38 +518,134 @@ sys_pipe(void)
   return 0;
 }
 
-// // System call to support symbolic links
-// uint64 
-// sys_symlink(void) {
-//   char target[MAXPATH], path[MAXPATH];
-//   struct inode *ip;
+uint64
+sys_readlink(void)
+{
+  char path[MAXPATH];
+  char *buf;
+  int bufsize;
+  uint64 len;
+  struct inode *ip;
 
-//   if(argstr(0, target, MAXPATH) < 0 || argstr(1, path, MAXPATH) < 0)
-//     return -1;
-  
-//   begin_op();
-  
-//   if((ip = create(path, T_SYMLINK, 0, 0)) == 0) {
-//     end_op();
-//     return -1;
-//   }
 
-//   int len = strlen(target);
-//   if(len > MAXPATH) 
-//     panic("sys_symlink: too long pathname\n");
-//   // write size of sokt link path first, convenient for readi() to read
-//   if(writei(ip, 0, (uint64)&len, 0, sizeof(int)) != sizeof(int)) {
-//     end_op();
-//     return -1;
-//   }
-//   if(writei(ip, 0, (uint64)target, sizeof(int), len) != len) {
-//     end_op();
-//     return -1;
-//   }
-  
-//   iupdate(ip);
-//   iunlockput(ip);
+    if(argstr(0, path, MAXPATH) < 0  || argaddr(1, (uint64*)&buf) < 0 || argint(2, &bufsize) < 0)
+    return -1;
 
-//   end_op();
-//   return 0;
-// }
+    begin_op();
+
+    if(strlen(path) > MAXPATH){
+      end_op();
+      return -1;
+    }
+
+    if((ip = namei(path)) == 0){
+      end_op();
+      return -1;
+    }
+
+    ilock(ip);
+
+    if(ip->type != T_SYMLINK){
+      iunlock(ip);
+      end_op();
+      return -1;
+    }
+    
+    if(readi(ip, 0, (uint64)&len, 0, sizeof(int)) != sizeof(int)){
+      iunlock(ip);
+      end_op();
+      return -1;
+    }
+
+    if(len > bufsize){
+      iunlock(ip);
+      end_op();
+      return -1;
+    }
+
+    if(readi(ip, 0, (uint64)buf, sizeof(int), len) != len){
+      iunlock(ip);
+      end_op();
+      return -1;
+    }
+
+    iunlock(ip);
+    end_op();
+    return 0;
+}
+
+// System call to support symbolic links
+uint64 
+sys_symlink(void) {
+  char newpath[MAXPATH], oldpath[MAXPATH];
+  struct inode *ip;
+
+  if(argstr(0, newpath, MAXPATH) < 0 || argstr(1, oldpath, MAXPATH) < 0)
+    return -1;
+  
+  begin_op();
+  
+  if((ip = create(newpath, T_SYMLINK, 0, 0)) == 0) {
+    end_op();
+    return -1;
+  }
+
+  int len = strlen(oldpath);
+  if(len > MAXPATH) 
+    panic("sys_symlink: too long pathname\n");
+  // write size of sokt link path first, convenient for readi() to read
+  if(writei(ip, 0, (uint64)&len, 0, sizeof(int)) != sizeof(int)) {
+    end_op();
+    return -1;
+  }
+
+  if(writei(ip, 0, (uint64)newpath, sizeof(int), len) != len) {
+    end_op();
+    return -1;
+  }
+  
+  iupdate(ip);
+  iunlockput(ip);
+
+  end_op();
+  return 0;
+}
+
+// must hold the lock of the link
+struct inode*
+dereference_link(struct inode* link, int stop){
+  struct inode* pred = 0;
+  char sympath[MAXPATH];
+  uint64 len;
+  int dereference;
+  for(dereference = 0; dereference < MAX_DEREFERENCE; dereference++){
+    if(link->type == T_SYMLINK){
+      dereference++;
+
+    if(readi(link, 0, (uint64)&len, 0, sizeof(int)) != sizeof(int)){
+      iunlockput(link);
+      end_op();
+      return 0;
+    }
+
+    if(readi(link, 0, (uint64)sympath, sizeof(int), len) != len){
+      iunlockput(link);
+      end_op();
+      return 0;
+    }
+    pred = link;
+    iunlock(link);
+
+    link = namei(sympath);
+    ilock(link);
+    }
+    else{
+      if(stop){
+        return pred;
+      }
+      return link;
+    }
+  }
+  iunlock(link);
+  return 0;
+}
