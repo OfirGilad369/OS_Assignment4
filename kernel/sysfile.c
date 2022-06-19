@@ -17,7 +17,7 @@
 #include "fcntl.h"
 
 uint64 readlink(char *pathname, char *buf, int bufsize);
-struct inode* dereference_link(struct inode* ip, int i);
+uint64 dereference_link(char *pathname, int bufsize);
 
 // Fetch the nth word-sized system call argument as a file descriptor
 // and return both the descriptor and the corresponding struct file.
@@ -298,6 +298,10 @@ sys_open(void)
   if((n = argstr(0, path, MAXPATH)) < 0 || argint(1, &omode) < 0)
     return -1;
 
+  // Dereferencing the symbolic link - START
+  //dereference_link(path, MAXPATH);
+  // Dereferencing the symbolic link - END
+
   begin_op();
 
   if(omode & O_CREATE){
@@ -405,13 +409,7 @@ sys_chdir(void)
   ilock(ip);
 
   // Dereferencing the symbolic link - START
-  // if(ip->type == T_SYMLINK){
-  //   ip = dereference_link(ip, 0);
-  //   if(ip == 0){
-  //     end_op();
-  //     return -1;
-  //   }
-  // }
+  // dereference_link(path, MAXPATH);
   // Dereferencing the symbolic link - END
 
   if(ip->type != T_DIR){
@@ -432,36 +430,13 @@ sys_exec(void)
   char path[MAXPATH], *argv[MAXARG];
   int i;
   uint64 uargv, uarg;
-  // int len;
-  // struct inode* ip;
 
   if(argstr(0, path, MAXPATH) < 0 || argaddr(1, &uargv) < 0){
     return -1;
   }
 
   // Dereferencing the symbolic link - START
-  // ip = namei(path);
-  // ilock(ip);
-  
-  // if(ip->type == T_SYMLINK){
-  //   ip = dereference_link(ip, 1);
-  //   if(ip == 0){
-  //     end_op();
-  //     return -1;
-  //   }
-    
-  //   if(readi(ip, 0, (uint64)&len, 0, sizeof(int)) != sizeof(int)){
-  //     iunlockput(ip);
-  //     end_op();
-  //     return 0;
-  //   }
-
-  //   if(readi(ip, 0, (uint64)path, sizeof(int), len) != len){
-  //     iunlockput(ip);
-  //     end_op();
-  //     return 0;
-  //   }
-  // }
+  dereference_link(path, MAXPATH);
   // Dereferencing the symbolic link - END
 
   memset(argv, 0, sizeof(argv));
@@ -544,15 +519,17 @@ sys_symlink(void) {
   }
 
   int len = strlen(oldpath);
-  if(len > MAXPATH) 
+  if(len > MAXPATH){
     panic("sys_symlink: too long pathname\n");
+  }
+
   // write size of sokt link path first, convenient for readi() to read
   if(writei(ip, 0, (uint64)&len, 0, sizeof(int)) != sizeof(int)) {
     end_op();
     return -1;
   }
 
-  if(writei(ip, 0, (uint64)newpath, sizeof(int), len) != len) {
+  if(writei(ip, 0, (uint64)oldpath, sizeof(int), len) != len) {
     end_op();
     return -1;
   }
@@ -569,57 +546,18 @@ sys_readlink(void)
 {
   char pathname[MAXPATH], buf[MAXPATH];
   int bufsize;
-  struct inode *ip;
-  // uint64 len;
 
   if(argstr(0, pathname, MAXPATH) < 0  ||  argstr(1, buf, MAXPATH) < 0 || argint(2, &bufsize) < 0)
-  return -1;
-
-  // Might be redundent
-  // begin_op();
-
-  if((ip = namei(pathname)) == 0){
-    // end_op();
     return -1;
-  }
-  else {
-    return readlink(pathname, buf, bufsize);
-  }
-
-  // ilock(ip);
-
-  // if(ip->type != T_SYMLINK){
-  //   iunlock(ip);
-  //   end_op();
-  //   return -1;
-  // }
- 
-  // if(readi(ip, 0, (uint64)&len, 0, sizeof(int)) != sizeof(int)){
-  //   iunlock(ip);
-  //   end_op();
-  //   return -1;
-  // }
-
-  // if(len > bufsize){
-  //   iunlock(ip);
-  //   end_op();
-  //   return -1;
-  // }
-
-  // if(readi(ip, 0, (uint64)buf, sizeof(int), len) != len){
-  //   iunlock(ip);
-  //   end_op();
-  //   return -1;
-  // }
   
-  // iunlock(ip);
-  // end_op();
-  // return 0;
+  return readlink(pathname, buf, bufsize);
 }
 
 uint64
 readlink(char *pathname, char *buf, int bufsize){
   struct inode *ip;
+  char target_pathname[MAXPATH];
+
   if((ip = namei(pathname)) == 0){
     return -1;
   }
@@ -629,9 +567,22 @@ readlink(char *pathname, char *buf, int bufsize){
     iunlock(ip);
     return -1;
   }
+  else{
+    int len = strlen(pathname);
+    if(len > MAXPATH){
+      panic("sys_readlink: too long pathname\n");
+    }
+    
+    if(readi(ip, 0, (uint64)&len, 0, sizeof(int)) != sizeof(int)) {
+      return -1;
+    }
 
-  if(ip->type == T_SYMLINK){
-    safestrcpy(buf, (char *)ip->addrs, bufsize);
+    if(readi(ip, 0, (uint64)target_pathname, sizeof(int), len) != len) {
+      return -1;
+    }
+
+    printf("Path: %s\n", target_pathname);
+    safestrcpy(buf, (char *)target_pathname, bufsize);
     iunlock(ip);
     return 0;
   }
@@ -640,40 +591,29 @@ readlink(char *pathname, char *buf, int bufsize){
 }
 
 // must hold the lock of the link
-struct inode*
-dereference_link(struct inode* link, int stop){
-  struct inode* pred = 0;
+uint64
+dereference_link(char *pathname, int bufsize){
+  struct inode *ip;
   char sympath[MAXPATH];
-  uint64 len;
-  int dereference;
+  int dereference, read_result;
+  
   for(dereference = 0; dereference < MAX_DEREFERENCE; dereference++){
-    if(link->type == T_SYMLINK){
-      dereference++;
-
-    if(readi(link, 0, (uint64)&len, 0, sizeof(int)) != sizeof(int)){
-      iunlockput(link);
-      end_op();
-      return 0;
-    }
-
-    if(readi(link, 0, (uint64)sympath, sizeof(int), len) != len){
-      iunlockput(link);
-      end_op();
-      return 0;
-    }
-    pred = link;
-    iunlock(link);
-
-    link = namei(sympath);
-    ilock(link);
-    }
-    else{
-      if(stop){
-        return pred;
+    read_result = readlink(pathname, sympath, MAXPATH);
+    if(read_result < 0){
+      if(dereference == 0){
+        // This is not a symbolic link
+        return -1;
       }
-      return link;
+      if((ip = namei(pathname)) == 0){
+        // Pathname does not exists
+        return -1;
+      }
+      // Completed
+      return 0;
     }
+    // Copy to buffer current found path
+    safestrcpy(pathname, sympath, bufsize);
   }
-  iunlock(link);
-  return 0;
+  //Too many dereferences
+  return -1;
 }
