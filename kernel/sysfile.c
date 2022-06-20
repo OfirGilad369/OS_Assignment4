@@ -257,6 +257,9 @@ create(char *path, short type, short major, short minor)
     ilock(ip);
     if(type == T_FILE && (ip->type == T_FILE || ip->type == T_DEVICE))
       return ip;
+    // Support for symbolic link
+    if(type == T_SYMLINK)
+      return ip;
     iunlockput(ip);
     return 0;
   }
@@ -299,7 +302,7 @@ sys_open(void)
     return -1;
 
   // Dereferencing the symbolic link - START
-  //dereference_link(path, MAXPATH);
+  dereference_link(path, MAXPATH);
   // Dereferencing the symbolic link - END
 
   begin_op();
@@ -409,7 +412,7 @@ sys_chdir(void)
   ilock(ip);
 
   // Dereferencing the symbolic link - START
-  // dereference_link(path, MAXPATH);
+  dereference_link(path, MAXPATH);
   // Dereferencing the symbolic link - END
 
   if(ip->type != T_DIR){
@@ -529,7 +532,7 @@ sys_symlink(void) {
     return -1;
   }
 
-  if(writei(ip, 0, (uint64)oldpath, sizeof(int), len) != len) {
+  if(writei(ip, 0, (uint64)oldpath, sizeof(int), len + 1) != len + 1) {
     end_op();
     return -1;
   }
@@ -558,16 +561,19 @@ readlink(char *pathname, char *buf, int bufsize){
   struct inode *ip;
   char target_pathname[MAXPATH];
 
+  // Pathname does not exists
   if((ip = namei(pathname)) == 0){
     return -1;
   }
   ilock(ip);
 
+  // This is not a symbolic link
   if(ip->type != T_SYMLINK){
     iunlock(ip);
     return -1;
   }
   else{
+    // bufsize is smaller than the length of the resolved path
     int len = strlen(pathname);
     if(len > MAXPATH){
       panic("sys_readlink: too long pathname\n");
@@ -577,11 +583,11 @@ readlink(char *pathname, char *buf, int bufsize){
       return -1;
     }
 
-    if(readi(ip, 0, (uint64)target_pathname, sizeof(int), len) != len) {
+    if(readi(ip, 0, (uint64)target_pathname, sizeof(int), len + 1) != len + 1) {
       return -1;
     }
 
-    printf("Path: %s\n", target_pathname);
+    //printf("Path: %s\n", target_pathname);
     safestrcpy(buf, (char *)target_pathname, bufsize);
     iunlock(ip);
     return 0;
@@ -598,6 +604,7 @@ dereference_link(char *pathname, int bufsize){
   int dereference, read_result;
   
   for(dereference = 0; dereference < MAX_DEREFERENCE; dereference++){
+    //printf("CURR PATH: %s\n", pathname);
     read_result = readlink(pathname, sympath, MAXPATH);
     if(read_result < 0){
       if(dereference == 0){
