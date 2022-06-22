@@ -320,17 +320,12 @@ sys_open(void)
       //safestrcpy(temppath, path, MAXPATH);
 
       //printf("STUCK HERE\n");
-      iunlock(ip);
+      //iunlock(ip);
       // Dereferencing the symbolic link - START
-      dereference_link(path, MAXPATH);
+      //dereference_link(path, MAXPATH);
       // Dereferencing the symbolic link - END
-      ilock(ip);
-      //printf("PASSED?\n");
+      //ilock(ip);
 
-//      if((ip = namei(path)) == 0){
-//        end_op();
-//        return -1;
-//      }
     }
 
     if(ip->type == T_DIR && omode != O_RDONLY && omode != O_NOFOLLOW){
@@ -426,7 +421,7 @@ sys_chdir(void)
   ilock(ip);
 
   // Dereferencing the symbolic link - START
-  dereference_link(path, MAXPATH);
+  //dereference_link(path, MAXPATH);
   // Dereferencing the symbolic link - END
 
   if(ip->type != T_DIR){
@@ -561,7 +556,7 @@ sys_symlink(void) {
 uint64
 sys_readlink(void)
 {
-  char pathname[MAXPATH];
+  char pathname[MAXPATH], pathbuf[MAXPATH];
   uint64 buf;
   int bufsize;
 
@@ -569,8 +564,13 @@ sys_readlink(void)
   if(argstr(0, pathname, MAXPATH) < 0  ||  argaddr(1, &buf) < 0 || argint(2, &bufsize) < 0)
     return -1;
 
-  //readlink(pathname, (char*) buf, bufsize);
-  printf("GOT %s\n", buf);
+  readlink(pathname, pathbuf, bufsize);
+  struct proc *p = myproc();
+
+  if(copyout(p->pagetable, buf, pathbuf, bufsize) < 0){
+    return -1;
+  }
+  //printf("GOT %s\n", buf);
 
   return 0;
 }
@@ -584,9 +584,9 @@ readlink(char *pathname, char *buf, int bufsize){
   if((ip = namei(pathname)) == 0){
     return -1;
   }
-  printf("DO1\n");
+  //printf("DO1\n");
   ilock(ip);
-  printf("DO2\n");
+  //printf("DO2\n");
   // This is not a symbolic link
   if(ip->type != T_SYMLINK){
     iunlock(ip);
