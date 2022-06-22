@@ -314,12 +314,32 @@ sys_open(void)
       end_op();
       return -1;
     }
-    if(ip->type == T_SYMLINK && !(omode & O_NOFOLLOW)) {
-      // Dereferencing the symbolic link - START
-      dereference_link(path, MAXPATH);
-      // Dereferencing the symbolic link - END
-    }
     ilock(ip);
+    if((ip->type == T_SYMLINK) && !(omode & O_NOFOLLOW)){
+      int count = 0;
+      while(ip->type == T_SYMLINK && count < MAX_DEREFERENCE){
+        int len = 0;
+        readi(ip, 0, (uint64)&len, 0, sizeof(int));
+
+        if(len > MAXPATH)
+          panic("open: corrupted symlink inode");
+
+        readi(ip, 0, (uint64)path, sizeof(int), len + 1);
+        iunlockput(ip);
+        if((ip = namei(path)) == 0){
+          end_op();
+          return -1;
+        }
+        ilock(ip);
+        count++;
+      }
+      if(count >= MAX_DEREFERENCE){
+        iunlockput(ip);
+        end_op();
+        return -1;
+       }
+    }
+
     if(ip->type == T_DIR && omode != O_RDONLY && omode != O_NOFOLLOW){
       iunlockput(ip);
       end_op();
@@ -543,7 +563,7 @@ sys_symlink(void) {
 
   int len = strlen(oldpath);
   if(len > MAXPATH){
-    panic("sys_symlink: too long pathname\n");
+    panic("sys_symlink: too long pathname");
   }
 
   // write size of sokt link path first, convenient for readi() to read
@@ -606,7 +626,7 @@ readlink(char *pathname, char *buf, int bufsize){
     // bufsize is smaller than the length of the resolved path
     int len = strlen(pathname);
     if(len > MAXPATH){
-      panic("sys_readlink: too long pathname\n");
+      panic("sys_readlink: too long pathname");
     }
     
     if(readi(ip, 0, (uint64)&len, 0, sizeof(int)) != sizeof(int)) {
@@ -630,7 +650,6 @@ dereference_link(char *pathname, int bufsize){
   int dereference, read_result;
   
   for(dereference = 0; dereference < MAX_DEREFERENCE; dereference++){
-    printf("CURR PATH: %s\n", pathname);
     read_result = readlink(pathname, sympath, MAXPATH);
     if(read_result < 0){
       if(dereference == 0){

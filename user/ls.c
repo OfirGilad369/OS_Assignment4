@@ -44,7 +44,7 @@ ls(char *path)
   struct dirent de;
   struct stat st;
 
-  if((fd = open(path, 0)) < 0){
+  if((fd = open(path, O_NOFOLLOW)) < 0){
     fprintf(2, "ls: cannot open %s\n", path);
     return;
   }
@@ -57,7 +57,6 @@ ls(char *path)
 
   struct stat symlink_target;
   switch(st.type){
-
   case T_SYMLINK:
     readlink(path, buf, 128);
     stat(buf, &symlink_target);
