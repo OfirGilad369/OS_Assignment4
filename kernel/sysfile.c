@@ -314,20 +314,12 @@ sys_open(void)
       end_op();
       return -1;
     }
-      ilock(ip);
-    if(ip->type == T_SYMLINK && (omode != O_NOFOLLOW)) {
-      //char temppath[MAXPATH];
-      //safestrcpy(temppath, path, MAXPATH);
-
-      //printf("STUCK HERE\n");
-      //iunlock(ip);
+    if(ip->type == T_SYMLINK && !(omode & O_NOFOLLOW)) {
       // Dereferencing the symbolic link - START
-      //dereference_link(path, MAXPATH);
+      dereference_link(path, MAXPATH);
       // Dereferencing the symbolic link - END
-      //ilock(ip);
-
     }
-
+    ilock(ip);
     if(ip->type == T_DIR && omode != O_RDONLY && omode != O_NOFOLLOW){
       iunlockput(ip);
       end_op();
@@ -418,12 +410,31 @@ sys_chdir(void)
     end_op();
     return -1;
   }
+
+  if(ip->type == T_SYMLINK) {
+    // Dereferencing the symbolic link - START
+    dereference_link(path, MAXPATH);
+    // Dereferencing the symbolic link - END
+
+    int i = 0, j = 1;
+    char temppath[MAXPATH];
+
+    temppath[0] = '.';
+    while (path[i] != '\0'){
+      temppath[j] = path[i];
+      i++;
+      j++;
+    }
+    temppath[j] = '\0';
+    safestrcpy(path, temppath, MAXPATH);
+
+    if((ip = namei(path)) == 0){
+      end_op();
+      return -1;
+    }
+  }
+
   ilock(ip);
-
-  // Dereferencing the symbolic link - START
-  //dereference_link(path, MAXPATH);
-  // Dereferencing the symbolic link - END
-
   if(ip->type != T_DIR){
     iunlockput(ip);
     end_op();
@@ -570,7 +581,6 @@ sys_readlink(void)
   if(copyout(p->pagetable, buf, pathbuf, bufsize) < 0){
     return -1;
   }
-  //printf("GOT %s\n", buf);
 
   return 0;
 }
@@ -584,9 +594,9 @@ readlink(char *pathname, char *buf, int bufsize){
   if((ip = namei(pathname)) == 0){
     return -1;
   }
-  //printf("DO1\n");
+
   ilock(ip);
-  //printf("DO2\n");
+
   // This is not a symbolic link
   if(ip->type != T_SYMLINK){
     iunlock(ip);
@@ -607,14 +617,12 @@ readlink(char *pathname, char *buf, int bufsize){
       return -1;
     }
 
-    //printf("Path: %s\n", target_pathname);
     safestrcpy(buf, (char *)target_pathname, bufsize);
     iunlock(ip);
     return 0;
   }
 }
 
-// must hold the lock of the link
 uint64
 dereference_link(char *pathname, int bufsize){
   struct inode *ip;
