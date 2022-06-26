@@ -555,6 +555,12 @@ sys_symlink(void) {
     return -1;
   
   begin_op();
+
+  // Newpath exists
+  if((ip = namei(newpath)) != 0){
+    end_op();
+    return -1;
+  }
   
   if((ip = create(newpath, T_SYMLINK, 0, 0)) == 0) {
     end_op();
@@ -566,7 +572,7 @@ sys_symlink(void) {
     panic("sys_symlink: too long pathname");
   }
 
-  // write size of sokt link path first, convenient for readi() to read
+  // Writing the size of the soft link path, convenient for readi() to read
   if(writei(ip, 0, (uint64)&len, 0, sizeof(int)) != sizeof(int)) {
     end_op();
     return -1;
@@ -591,11 +597,12 @@ sys_readlink(void)
   uint64 buf;
   int bufsize;
 
-
   if(argstr(0, pathname, MAXPATH) < 0  ||  argaddr(1, &buf) < 0 || argint(2, &bufsize) < 0)
     return -1;
 
-  readlink(pathname, pathbuf, bufsize);
+  if(readlink(pathname, pathbuf, bufsize) != 0)
+    return -1;
+  
   struct proc *p = myproc();
 
   if(copyout(p->pagetable, buf, pathbuf, bufsize) < 0){
