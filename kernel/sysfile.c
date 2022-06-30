@@ -436,18 +436,6 @@ sys_chdir(void)
     dereference_link(path, MAXPATH);
     // Dereferencing the symbolic link - END
 
-    int i = 0, j = 1;
-    char temppath[MAXPATH];
-
-    temppath[0] = '.';
-    while (path[i] != '\0'){
-      temppath[j] = path[i];
-      i++;
-      j++;
-    }
-    temppath[j] = '\0';
-    safestrcpy(path, temppath, MAXPATH);
-
     if((ip = namei(path)) == 0){
       end_op();
       return -1;
