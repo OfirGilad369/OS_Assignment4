@@ -73,8 +73,6 @@ ls(char *path)
     j++;
     symlinkpath[j] = '>';
     j++;
-    symlinkpath[j] = '.';
-    j++;
     i = 0;
     while (buf[i] != '\0') {
       symlinkpath[j] = buf[i];
@@ -122,8 +120,6 @@ ls(char *path)
         symlinkpath[j] = '-';
         j++;
         symlinkpath[j] = '>';
-        j++;
-        symlinkpath[j] = '.';
         j++;
         i = 0;
         while (target[i] != '\0') {
